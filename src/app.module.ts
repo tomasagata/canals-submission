@@ -4,9 +4,11 @@ import { GeocodingModule } from './geocoding/geocoding.module.js';
 import { PaymentModule } from './payment/payment.module.js';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { CustomersModule } from './customers/customers.module.js';
 
 @Module({
   imports: [
+    CustomersModule,
     OrdersModule, 
     GeocodingModule, 
     PaymentModule,
