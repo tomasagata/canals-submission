@@ -78,7 +78,7 @@ export class OrdersRepository {
           // doesn't linger and confuse operators reading the collection.
           $unset: { sweepLeaseUntil: 1 },
         },
-        { new: true },
+        { returnDocument: 'after' },
       )
       .exec();
   }
@@ -110,7 +110,7 @@ export class OrdersRepository {
         // wait a full staleAfterMs (minutes) to be retried instead of a lease
         // (seconds). It also keeps updatedAt meaning "last real state change",
         // which is what the staleness scan is asking about.
-        { sort: { updatedAt: 1 }, new: true, timestamps: false },
+        { sort: { updatedAt: 1 }, returnDocument: 'after', timestamps: false },
       )
       .exec();
   }

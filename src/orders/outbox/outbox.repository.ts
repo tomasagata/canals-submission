@@ -49,7 +49,7 @@ export class OutboxRepository {
           $or: [{ claimedAt: { $exists: false } }, { claimedAt: { $lte: staleClaim } }],
         },
         { $set: { claimedAt: now }, $inc: { attempts: 1 } },
-        { sort: { nextRetryAt: 1 }, new: true },
+        { sort: { nextRetryAt: 1 }, returnDocument: 'after' },
       )
       .exec();
   }
