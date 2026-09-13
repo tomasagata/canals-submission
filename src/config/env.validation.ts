@@ -38,6 +38,9 @@ export class EnvironmentVariables {
   @IsString()
   GEOCODING_BASE_URL: string;
 
+  @IsString()
+  CATALOG_BASE_URL: string;
+
   // --- Outbox relay ---
   @IsOptional() @toNumber() @IsInt() @Min(50)
   ORDER_OUTBOX_POLL_INTERVAL_MS: number = 1000;

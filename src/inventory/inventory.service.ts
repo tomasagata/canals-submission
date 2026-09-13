@@ -2,9 +2,8 @@ import { Injectable } from "@nestjs/common";
 import { InjectConnection, InjectModel } from "@nestjs/mongoose";
 import { Warehouse } from "./schemas/warehouses.schema.js";
 import { Stock } from "./schemas/stock.schema.js";
-import { Connection, Model, Types } from "mongoose";
+import mongoose, { Model, Types } from "mongoose";
 import { Coordinates } from "../geocoding/interfaces/index.js";
-import { Product } from "./schemas/product.schema.js";
 import { MovementKind, StockMovement } from "./schemas/stock-movement.schema.js";
 import { InsufficientStockError, NoWarehouseAvailableError } from "./inventory.errors.js";
 import { isDuplicateKeyError } from "../common/mongo.util.js";
@@ -31,21 +30,11 @@ interface WarehouseWithStock extends Warehouse {
 @Injectable()
 export class InventoryService {
     constructor(
-        @InjectConnection() private readonly connection: Connection,
+        @InjectConnection() private readonly connection: mongoose.Connection,
         @InjectModel(Stock.name) private readonly stockModel: Model<Stock>,
         @InjectModel(Warehouse.name) private readonly warehouseModel: Model<Warehouse>,
-        @InjectModel(Product.name) private readonly productModel: Model<Product>,
         @InjectModel(StockMovement.name) private readonly movementModel: Model<StockMovement>,
     ) {}
-
-    async getProductsById(productIds: Types.ObjectId[]): Promise<Product[]> {
-        const products = await this.productModel.find({ _id: { $in: productIds } }).exec();
-        if (products.length !== productIds.length) {
-            const missing = productIds.filter((id) => !products.some((p) => p._id.equals(id)));
-            throw new Error(`Products not found for IDs: ${missing.join(", ")}`);
-        }
-        return products;
-    }
 
     /**
      * Reserves stock for an order at the nearest warehouse that can fulfil it.

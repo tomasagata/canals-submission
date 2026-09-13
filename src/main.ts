@@ -32,6 +32,7 @@ async function bootstrap() {
 
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
   app.useGlobalFilters(new DomainExceptionFilter());
+  app.enableCors();
   // Required for the queue worker and the outbox relay to shut down cleanly on
   // SIGTERM rather than being killed mid-saga.
   app.enableShutdownHooks();

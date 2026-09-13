@@ -1,11 +1,13 @@
 import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
-import { Product } from "./product.schema.js";
 import mongoose from "mongoose";
 import { Warehouse } from "./warehouses.schema.js";
 
 @Schema()
 export class Stock {
-    @Prop({ type: mongoose.Schema.Types.ObjectId, ref: Product.name })
+    // Not a local ref: products live in the catalog microservice now, reached
+    // over HTTP via CatalogService. This id is only ever compared against ids
+    // that service returns.
+    @Prop({ type: mongoose.Schema.Types.ObjectId })
     productId: mongoose.Types.ObjectId;
     
     @Prop({ type: mongoose.Schema.Types.ObjectId, ref: Warehouse.name })

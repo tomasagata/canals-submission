@@ -13,6 +13,7 @@ import { GeocodingModule } from '../geocoding/geocoding.module.js';
 import { CustomersModule } from '../customers/customers.module.js';
 import { PaymentModule } from '../payment/payment.module.js';
 import { InventoryModule } from '../inventory/inventory.module.js';
+import { CatalogModule } from '../catalog/catalog.module.js';
 import { Order, OrderSchema } from './schemas/order.schema.js';
 import { OutboxEvent, OutboxEventSchema } from './outbox/outbox-event.schema.js';
 import { ORDER_SAGA_QUEUE } from './queue/order-queue.constants.js';
@@ -39,6 +40,7 @@ const workerEnabled = (process.env.ORDER_SAGA_WORKER_ENABLED ?? 'true').toLowerC
     CustomersModule,
     PaymentModule,
     InventoryModule,
+    CatalogModule,
     MongooseModule.forFeature([
       { name: Order.name, schema: OrderSchema },
       { name: OutboxEvent.name, schema: OutboxEventSchema },

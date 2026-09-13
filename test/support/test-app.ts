@@ -11,10 +11,10 @@ import { OrdersModule } from '../../src/orders/orders.module.js';
 import { MockDataModule } from '../../src/mockdata/mockdata.module.js';
 import { ORDER_SAGA_QUEUE } from '../../src/orders/queue/order-queue.constants.js';
 import { DomainExceptionFilter } from '../../src/common/filters/domain-exception.filter.js';
-import { Product } from '../../src/inventory/schemas/product.schema.js';
 import { Stock } from '../../src/inventory/schemas/stock.schema.js';
 import { Warehouse } from '../../src/inventory/schemas/warehouses.schema.js';
 import { Customer } from '../../src/mockdata/schemas/customer.schema.js';
+import { Product } from '../../src/mockdata/schemas/product.schema.js';
 import { MockAddress } from '../../src/mockdata/schemas/mock-address.schema.js';
 import { OrderSagaProcessor } from '../../src/orders/order-saga.processor.js';
 import { OrderReconciliationService } from '../../src/orders/order-reconciliation.service.js';
@@ -24,6 +24,7 @@ import { InventoryService } from '../../src/inventory/inventory.service.js';
 import { PaymentService, PSP_LOCATION } from '../../src/payment/payment.service.js';
 import { CustomersService, CUSTOMER_LOCATION } from '../../src/customers/customers.service.js';
 import { GEOCODING_LOCATION } from '../../src/geocoding/geocoding.service.js';
+import { CATALOG_LOCATION } from '../../src/catalog/catalog.service.js';
 import type { RemoteServiceLocation } from '../../src/common/remote-location.js';
 import type { Job } from 'bullmq';
 import type { OrderSagaJobData } from '../../src/orders/queue/order-queue.constants.js';
@@ -99,16 +100,17 @@ export async function createTestHarness(envOverrides: Record<string, string> = {
   // per-request servers reset connections under that load.
   await app.listen(0);
 
-  // Payment/Customers/Geocoding each call their own configured location over
-  // real loopback HTTP; all three default to the mockdata module mounted on
-  // this same app. None of that is known until now, since the port is
-  // OS-assigned - this corrects each one to the port actually bound above.
+  // Payment/Customers/Geocoding/Catalog each call their own configured
+  // location over real loopback HTTP; all four default to the mockdata module
+  // mounted on this same app. None of that is known until now, since the port
+  // is OS-assigned - this corrects each one to the port actually bound above.
   const address = app.getHttpServer().address();
   const port = typeof address === 'object' && address ? address.port : address;
   const base = `http://127.0.0.1:${port}`;
   moduleRef.get<RemoteServiceLocation>(PSP_LOCATION, { strict: false }).setBaseUrl(`${base}/psp`);
   moduleRef.get<RemoteServiceLocation>(CUSTOMER_LOCATION, { strict: false }).setBaseUrl(`${base}/customers`);
   moduleRef.get<RemoteServiceLocation>(GEOCODING_LOCATION, { strict: false }).setBaseUrl(`${base}/addresses`);
+  moduleRef.get<RemoteServiceLocation>(CATALOG_LOCATION, { strict: false }).setBaseUrl(`${base}/products`);
 
   // Unregister the reconciliation cron. Tests invoke sweep() themselves; a
   // timer firing mid-test would rewrite order state under an assertion.

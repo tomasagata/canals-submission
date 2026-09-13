@@ -1,12 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-import { Connection, Model, Types } from 'mongoose';
+import mongoose, { Model, Types } from 'mongoose';
 import { createHash } from 'node:crypto';
 import { CreateOrderDto, ListOrdersQueryDto, OrderResponseDto, PaginatedOrdersDto } from './dto/index.js';
-import { InventoryService } from '../inventory/inventory.service.js';
 import { CustomersService } from '../customers/customers.service.js';
 import { GeocodingService } from '../geocoding/geocoding.service.js';
-import { Product } from '../inventory/schemas/product.schema.js';
+import { CatalogService, Product } from '../catalog/catalog.service.js';
 import { Order, OrderDocument } from './schemas/order.schema.js';
 import { OrderStatus } from './order-status.js';
 import { OrdersRepository } from './orders.repository.js';
@@ -45,12 +44,12 @@ export class OrdersService {
   private readonly logger = new Logger(OrdersService.name);
 
   constructor(
-    @InjectConnection() private readonly connection: Connection,
+    @InjectConnection() private readonly connection: mongoose.Connection,
     @InjectModel(Order.name) private readonly orderModel: Model<Order>,
     private readonly orders: OrdersRepository,
     private readonly outbox: OutboxRepository,
     private readonly customersService: CustomersService,
-    private readonly inventoryService: InventoryService,
+    private readonly catalogService: CatalogService,
     private readonly geocodingService: GeocodingService,
   ) {}
 
@@ -203,7 +202,7 @@ export class OrdersService {
 
   private async loadProducts(dto: CreateOrderDto): Promise<Product[]> {
     try {
-      return await this.inventoryService.getProductsById(dto.items.map((item) => new Types.ObjectId(item.productId)));
+      return await this.catalogService.getProductsById(dto.items.map((item) => item.productId));
     } catch (error) {
       throw new UnprocessableOrderError('PRODUCT_NOT_FOUND', getErrorMessage(error));
     }
@@ -227,7 +226,7 @@ export class OrdersService {
    */
   private priceOrder(dto: CreateOrderDto, products: Product[]) {
     const items = dto.items.map((item) => {
-      const product = products.find((p: Product) => p._id.equals(item.productId));
+      const product = products.find((p: Product) => p.id === item.productId);
       if (!product) {
         throw new UnprocessableOrderError('PRODUCT_NOT_FOUND', `Product ${item.productId} not found.`);
       }
