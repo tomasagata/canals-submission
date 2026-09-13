@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Order Tester</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ORDERS SCREEN -->
+  <section id="screen-orders" class="screen">
+    <header class="topbar">
+      <h1>Orders</h1>
+      <div class="topbar-actions">
+        <button id="btn-open-testlab" class="icon-btn" title="Test lab" aria-label="Test lab">&#x1F9EA;</button>
+        <button id="btn-open-settings" class="icon-btn" title="Settings" aria-label="Settings">&#x2699;&#xFE0F;</button>
+      </div>
+    </header>
+
+    <main class="content">
+      <section class="card">
+        <h2>New order</h2>
+        <form id="order-form">
+          <label for="field-idempotency-key">Idempotency key</label>
+          <input type="text" id="field-idempotency-key" name="idempotencyKey" />
+
+          <label for="field-customer">Customer</label>
+          <select id="field-customer" name="customerId" required>
+            <option value="" disabled selected>Loading customers&hellip;</option>
+          </select>
+
+          <label for="field-address">Shipping address</label>
+          <select id="field-address" name="shippingAddress" required>
+            <option value="" disabled selected>Loading addresses&hellip;</option>
+          </select>
+
+          <label>Items</label>
+          <div id="items-list"></div>
+          <button type="button" id="btn-add-item" class="secondary-btn">+ Add item</button>
+
+          <button type="submit" id="btn-submit-order" class="primary-btn">Create order</button>
+          <p id="order-form-message" class="form-message" hidden></p>
+        </form>
+      </section>
+
+      <section class="card">
+        <div class="section-header">
+          <h2>Existing orders</h2>
+          <button type="button" id="btn-refresh-orders" class="secondary-btn">Refresh</button>
+        </div>
+        <p id="orders-message" class="form-message" hidden></p>
+        <ul id="orders-list" class="orders-list"></ul>
+      </section>
+    </main>
+  </section>
+
+  <!-- SETTINGS SCREEN -->
+  <section id="screen-settings" class="screen" hidden>
+    <header class="topbar">
+      <button type="button" class="icon-btn btn-back" data-back-to="screen-orders" title="Back" aria-label="Back">&#x2190;</button>
+      <h1>Settings</h1>
+    </header>
+    <main class="content">
+      <p class="placeholder">Test settings (warehouses, etc.) coming soon.</p>
+    </main>
+  </section>
+
+  <!-- TEST LAB SCREEN -->
+  <section id="screen-testlab" class="screen" hidden>
+    <header class="topbar">
+      <button type="button" class="icon-btn btn-back" data-back-to="screen-orders" title="Back" aria-label="Back">&#x2190;</button>
+      <h1>Test lab</h1>
+    </header>
+    <main class="content">
+      <p class="placeholder">Thorough test scenarios coming soon.</p>
+    </main>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>

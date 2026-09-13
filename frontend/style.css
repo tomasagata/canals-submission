@@ -1,0 +1,251 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: #f4f5f7;
+  color: #1a1a1a;
+}
+
+.screen {
+  min-height: 100vh;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: #ffffff;
+  border-bottom: 1px solid #e0e0e0;
+  position: sticky;
+  top: 0;
+}
+
+.topbar h1 {
+  font-size: 1.25rem;
+  margin: 0;
+  flex: 1;
+}
+
+.topbar-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.icon-btn {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  border-radius: 8px;
+  border: 1px solid #d8d8d8;
+  background: #fff;
+  font-size: 1.25rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-btn:hover {
+  background: #f0f0f0;
+}
+
+.content {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.card h2 {
+  margin-top: 0;
+  font-size: 1.05rem;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+form label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin: 14px 0 6px;
+}
+
+form input[type="text"],
+form input[type="number"],
+form select {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 1rem;
+  background: #fff;
+}
+
+.item-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.item-row select {
+  flex: 1 1 200px;
+}
+
+.item-row input[type="number"] {
+  width: 90px;
+  flex: 0 0 90px;
+}
+
+.item-row .btn-remove-item {
+  flex: 0 0 44px;
+}
+
+.primary-btn,
+.secondary-btn,
+.btn-remove-item {
+  min-height: 44px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.primary-btn {
+  width: 100%;
+  margin-top: 16px;
+  background: #2b62ff;
+  color: #fff;
+  font-weight: 600;
+}
+
+.primary-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.secondary-btn {
+  background: #fff;
+  border: 1px solid #ccc;
+  padding: 0 14px;
+}
+
+.btn-remove-item {
+  background: #fff;
+  border: 1px solid #ccc;
+  color: #c0392b;
+}
+
+.form-message {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.form-message.success {
+  background: #e6f6ea;
+  color: #1e7b34;
+}
+
+.form-message.error {
+  background: #fdecea;
+  color: #b3261e;
+}
+
+.form-message.info {
+  background: #eef2ff;
+  color: #33409c;
+}
+
+.orders-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.order-row {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.order-row-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.order-id {
+  font-family: monospace;
+  font-size: 0.85rem;
+  color: #555;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: #eef2ff;
+  color: #33409c;
+  white-space: nowrap;
+}
+
+.status-badge.status-completed {
+  background: #e6f6ea;
+  color: #1e7b34;
+}
+
+.status-badge.status-failed {
+  background: #fdecea;
+  color: #b3261e;
+}
+
+.order-detail {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #ddd;
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.placeholder {
+  color: #777;
+  font-style: italic;
+}
+
+@media (min-width: 700px) {
+  .content {
+    padding: 24px;
+  }
+}
