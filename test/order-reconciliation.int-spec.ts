@@ -16,15 +16,27 @@ import { Order } from '../src/orders/schemas/order.schema.js';
 import { PspCharge } from '../src/payment/schemas/psp-charge.schema.js';
 import { MovementKind, StockMovement } from '../src/inventory/schemas/stock-movement.schema.js';
 import { OutboxEvent } from '../src/orders/outbox/outbox-event.schema.js';
+import { OutboxRepository } from '../src/orders/outbox/outbox.repository.js';
+import { ordersConfig } from '../src/config/orders.config.js';
 
 /**
  * Ages an order so the sweeper considers it stale, without waiting minutes.
  * timestamps:false keeps this from being undone by mongoose's own bookkeeping.
+ *
+ * The default backdates by 2x the harness's *actual* configured staleAfterMs,
+ * rather than a hardcoded constant: a fixed number here would silently lose
+ * its safety margin (and start flaking) if ORDER_STALE_AFTER_MS ever changed
+ * without this file being updated to match.
  */
-async function age(harness: TestHarness, orderId: string, ms = 10 * 60_000): Promise<void> {
+async function age(harness: TestHarness, orderId: string, ms?: number): Promise<void> {
+  const resolvedMs = ms ?? harness.moduleRef.get(ordersConfig.KEY, { strict: false }).sweeper.staleAfterMs * 2;
   const model = harness.moduleRef.get(getModelToken(Order.name));
   await model
-    .updateOne({ _id: new Types.ObjectId(orderId) }, { $set: { updatedAt: new Date(Date.now() - ms) } }, { timestamps: false })
+    .updateOne(
+      { _id: new Types.ObjectId(orderId) },
+      { $set: { updatedAt: new Date(Date.now() - resolvedMs) } },
+      { timestamps: false },
+    )
     .exec();
 }
 
@@ -236,11 +248,37 @@ describe('Outbox relay', () => {
       })
       .expect(202);
 
-    const outbox = harness.moduleRef.get(
-      (await import('../src/orders/outbox/outbox.repository.js')).OutboxRepository,
-      { strict: false },
-    );
+    const outbox = harness.moduleRef.get(OutboxRepository, { strict: false });
     const [a, b] = await Promise.all([outbox.claimNext(30_000), outbox.claimNext(30_000)]);
     expect([a, b].filter(Boolean)).toHaveLength(1);
+  });
+
+  /**
+   * The guarantee against a duplicated ORDER_CREATED event is the unique
+   * (aggregateId, eventType) index, not the caller's session bookkeeping - a
+   * session only ties the event write to the order write, it doesn't stop two
+   * separate calls for the same order from both trying to insert one. This
+   * proves the index is what actually closes that race.
+   */
+  it('rejects a second ORDER_CREATED event for an aggregate that already has one', async () => {
+    const outbox = harness.moduleRef.get(OutboxRepository, { strict: false });
+    const orderId = new Types.ObjectId();
+
+    const firstSession = await harness.connection.startSession();
+    try {
+      await outbox.createOrderCreatedEvent(orderId, firstSession);
+    } finally {
+      await firstSession.endSession();
+    }
+
+    const secondSession = await harness.connection.startSession();
+    try {
+      await expect(outbox.createOrderCreatedEvent(orderId, secondSession)).rejects.toThrow();
+    } finally {
+      await secondSession.endSession();
+    }
+
+    const outboxModel = harness.moduleRef.get(getModelToken(OutboxEvent.name));
+    expect(await outboxModel.countDocuments({ aggregateId: orderId })).toBe(1);
   });
 });
