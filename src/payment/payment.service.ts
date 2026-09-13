@@ -1,12 +1,10 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { randomUUID } from 'node:crypto';
-import type { ConfigType } from '@nestjs/config';
+import { Inject, Injectable } from '@nestjs/common';
 import { AuthorizePaymentDto, PaymentResultDto } from './dto/index.js';
-import { ChargeStatus, PspCharge } from './schemas/psp-charge.schema.js';
-import { paymentConfig } from '../config/payment.config.js';
-import { isDuplicateKeyError } from '../common/mongo.util.js';
+import { RemoteServiceLocation } from '../common/remote-location.js';
+import { fetchJson, jsonInit } from '../common/http.util.js';
+
+/** DI token for where the PSP lives. Override its address via `PSP_BASE_URL`. */
+export const PSP_LOCATION = Symbol('PSP_LOCATION');
 
 /**
  * Simulates the gateway accepting the charge but the response never reaching
@@ -20,22 +18,26 @@ export class PaymentGatewayTimeoutError extends Error {
   }
 }
 
+/** Parses `chargedAt` back into a Date; it crosses the wire as an ISO string. */
+function reviveResult(body: PaymentResultDto): PaymentResultDto {
+  return { ...body, chargedAt: body.chargedAt ? new Date(body.chargedAt) : undefined };
+}
+
 /**
- * Mock payment service provider.
+ * Client for a PSP, reached over HTTP at whatever address `PSP_LOCATION`
+ * resolves to - the mockdata module by default (see `PSP_BASE_URL`), but any
+ * gateway speaking the same contract can be substituted with no code change.
  *
- * Deliberately modelled as a real PSP would behave: it keeps its own ledger
- * keyed on the caller's idempotency key, so replaying an authorization returns
- * the original outcome rather than charging again, and it exposes a lookup so a
- * caller who lost the response can ask what actually happened.
+ * The gateway keeps its own ledger keyed on the caller's idempotency key, so
+ * replaying an authorization returns the original outcome rather than
+ * charging again, and a lost response (HTTP 504) is the gateway's way of
+ * saying "the outcome is unknown to you, even though I know it" - which is
+ * exactly the case the reconciliation sweeper exists to resolve via
+ * `getByIdempotencyKey`.
  */
 @Injectable()
 export class PaymentService {
-  private readonly logger = new Logger(PaymentService.name);
-
-  constructor(
-    @InjectModel(PspCharge.name) private readonly chargeModel: Model<PspCharge>,
-    @Inject(paymentConfig.KEY) private readonly config: ConfigType<typeof paymentConfig>,
-  ) {}
+  constructor(@Inject(PSP_LOCATION) private readonly location: RemoteServiceLocation) {}
 
   /**
    * Authorizes a charge. Idempotent on `idempotencyKey`: the same key always
@@ -43,80 +45,34 @@ export class PaymentService {
    * ever charged once.
    */
   async authorize(dto: AuthorizePaymentDto): Promise<PaymentResultDto> {
-    const prior = await this.chargeModel.findOne({ idempotencyKey: dto.idempotencyKey }).lean().exec();
-    if (prior) {
-      return this.toResult(prior);
-    }
+    const response = await fetchJson<PaymentResultDto>(
+      `${this.location.getBaseUrl()}/authorize`,
+      jsonInit('POST', dto),
+    );
 
-    await this.injectLatency();
-
-    const declined = Math.random() < this.config.failureRate;
-    const charge = {
-      idempotencyKey: dto.idempotencyKey,
-      transactionId: `txn_${randomUUID()}`,
-      amount: dto.amount,
-      status: declined ? ChargeStatus.DECLINED : ChargeStatus.SUCCEEDED,
-      errorMessage: declined ? 'Card declined by issuer.' : undefined,
-    };
-
-    try {
-      // Persisted BEFORE we can possibly lose the response, exactly as a real
-      // gateway commits the charge before acknowledging it. This ordering is
-      // what makes the lookup below meaningful after a lost response.
-      await this.chargeModel.create(charge);
-    } catch (error) {
-      if (!isDuplicateKeyError(error, 'idempotencyKey')) throw error;
-      // A concurrent authorization with the same key won; return its outcome.
-      const winner = await this.chargeModel.findOne({ idempotencyKey: dto.idempotencyKey }).lean().exec();
-      if (winner) return this.toResult(winner);
-      throw error;
-    }
-
-    if (Math.random() < this.config.lostResponseRate) {
-      this.logger.warn(
-        `Simulating a lost response for charge ${charge.transactionId} (key=${dto.idempotencyKey}). ` +
-          `The charge IS recorded; the caller will not learn of it until reconciliation.`,
-      );
+    if (response.status === 504) {
       throw new PaymentGatewayTimeoutError();
     }
-
-    this.logger.log(`Authorized ${dto.amount} for ${dto.description} (key=${dto.idempotencyKey}).`);
-    return this.toResult(charge);
+    if (response.status < 200 || response.status >= 300 || !response.body) {
+      throw new Error(`PSP authorize request failed with status ${response.status}.`);
+    }
+    return reviveResult(response.body);
   }
 
   /**
    * Looks up a charge by the key it was made with.
    *
    * This is what lets reconciliation answer "did we actually charge this
-   * customer?" without guessing. The previous implementation had no such
-   * lookup, which forced the sweeper to assume a stuck order had failed - and
-   * therefore to risk releasing stock for an order that was in fact paid.
+   * customer?" without guessing.
    */
   async getByIdempotencyKey(idempotencyKey: string): Promise<PaymentResultDto | null> {
-    const charge = await this.chargeModel.findOne({ idempotencyKey }).lean().exec();
-    return charge ? this.toResult(charge) : null;
-  }
-
-  private toResult(charge: {
-    idempotencyKey: string;
-    transactionId: string;
-    amount: number;
-    status: ChargeStatus;
-    errorMessage?: string;
-    createdAt?: Date;
-  }): PaymentResultDto {
-    return {
-      success: charge.status === ChargeStatus.SUCCEEDED,
-      idempotencyKey: charge.idempotencyKey,
-      transactionId: charge.transactionId,
-      amount: charge.amount,
-      errorMessage: charge.errorMessage,
-      chargedAt: charge.createdAt,
-    };
-  }
-
-  private async injectLatency(): Promise<void> {
-    if (this.config.latencyMs <= 0) return;
-    await new Promise((resolve) => setTimeout(resolve, this.config.latencyMs));
+    const response = await fetchJson<PaymentResultDto>(
+      `${this.location.getBaseUrl()}/charges/${encodeURIComponent(idempotencyKey)}`,
+    );
+    if (response.status === 404) return null;
+    if (response.status < 200 || response.status >= 300 || !response.body) {
+      throw new Error(`PSP charge lookup failed with status ${response.status}.`);
+    }
+    return reviveResult(response.body);
   }
 }

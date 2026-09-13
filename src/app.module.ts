@@ -8,6 +8,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { BullModule } from '@nestjs/bullmq';
 import { CustomersModule } from './customers/customers.module.js';
+import { MockDataModule } from './mockdata/mockdata.module.js';
 import { validateEnv } from './config/env.validation.js';
 
 @Module({
@@ -26,6 +27,7 @@ import { validateEnv } from './config/env.validation.js';
         uri: configService.get<string>('MONGO_URI'),
       }),
     }),
+    MockDataModule,
     CustomersModule,
     OrdersModule,
     GeocodingModule,

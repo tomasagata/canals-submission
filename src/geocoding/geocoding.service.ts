@@ -1,42 +1,35 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Coordinates } from './interfaces/index.js';
 import { ConfigService } from '@nestjs/config';
-import ngeohash from 'ngeohash';
+import { RemoteServiceLocation } from '../common/remote-location.js';
+import { fetchJson } from '../common/http.util.js';
 
-const Cities: Array<{ name: string; coordinates: Coordinates }> = [
-    { name: 'Los Angeles', coordinates: { latitude: 34.0522, longitude: -118.2437 } },
-    { name: 'Chicago', coordinates: { latitude: 41.8781, longitude: -87.6298 } },
-    { name: 'Houston', coordinates: { latitude: 29.7604, longitude: -95.3698 } },
-    { name: 'Phoenix', coordinates: { latitude: 33.4484, longitude: -112.0740 } },
-    { name: 'Philadelphia', coordinates: { latitude: 40.2603, longitude: -76.8852 } },
-    { name: 'Miami', coordinates: { latitude: 27.9944, longitude: -81.7510 } },
-    { name: 'Buenos Aires', coordinates: { latitude: -34.6037, longitude: -58.3816 } },
-];
+/** DI token for where the geocoder lives. Override its address via `GEOCODING_BASE_URL`. */
+export const GEOCODING_LOCATION = Symbol('GEOCODING_LOCATION');
 
-function getCityCoordinates(address: string): Coordinates | null {
-    const city = Cities.find((c) => c.name.toLowerCase() === address.trim().toLowerCase());
-    return city ? city.coordinates : null;
-}
-
+/**
+ * Client for a geocoder, reached over HTTP at whatever address
+ * `GEOCODING_LOCATION` resolves to - the mockdata module by default (see
+ * `GEOCODING_BASE_URL`), but any provider speaking the same contract can be
+ * substituted with no code change.
+ */
 @Injectable()
 export class GeocodingService {
-    constructor(private readonly configService: ConfigService) {}
+    constructor(
+        private readonly configService: ConfigService,
+        @Inject(GEOCODING_LOCATION) private readonly location: RemoteServiceLocation,
+    ) {}
 
     async getCoordinates(address: string): Promise<Coordinates> {
-        const coordinates = getCityCoordinates(address);
-        if (!coordinates) {
+        const response = await fetchJson<Coordinates>(
+            `${this.location.getBaseUrl()}/lookup?address=${encodeURIComponent(address)}`,
+        );
+        if (response.status === 404) {
             throw new Error('Coordinates not available for the provided address');
         }
-        return coordinates;
-    }
-
-    passCoordinatesThroughGeohash(coordinates: Coordinates): Coordinates {
-        const precision = this.configService.get<number>('GEOHASH_PRECISION', 6);
-        const ghash = ngeohash.encode(coordinates.latitude, coordinates.longitude, precision);
-        const decoded: ngeohash.GeographicPoint = ngeohash.decode(ghash);
-        return {
-            latitude: decoded.latitude,
-            longitude: decoded.longitude,
-        };
+        if (response.status < 200 || response.status >= 300 || !response.body) {
+            throw new Error(`Geocoding request failed with status ${response.status}.`);
+        }
+        return response.body;
     }
 }

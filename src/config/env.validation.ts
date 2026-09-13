@@ -23,8 +23,20 @@ export class EnvironmentVariables {
   @IsOptional() @toNumber() @IsInt()
   PORT: number = 3000;
 
-  @IsOptional() @toNumber() @IsInt()
-  GEOHASH_PRECISION: number = 6;
+  // Where each outbound integration lives. Required rather than defaulted, so
+  // a fresh environment is explicit about it rather than silently landing on
+  // the mockdata module by coincidence. Point one at this same process's own
+  // address and the mockdata module answers it; override it independently to
+  // point that integration at a different backend (a real provider, or a
+  // mockdata instance running elsewhere) without touching the others.
+  @IsString()
+  PSP_BASE_URL: string;
+
+  @IsString()
+  CUSTOMER_BASE_URL: string;
+
+  @IsString()
+  GEOCODING_BASE_URL: string;
 
   // --- Outbox relay ---
   @IsOptional() @toNumber() @IsInt() @Min(50)

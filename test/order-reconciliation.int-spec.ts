@@ -13,7 +13,7 @@ import {
 } from './support/test-app.js';
 import { FailureCode, OrderStatus } from '../src/orders/order-status.js';
 import { Order } from '../src/orders/schemas/order.schema.js';
-import { PspCharge } from '../src/payment/schemas/psp-charge.schema.js';
+import { PspCharge } from '../src/mockdata/schemas/psp-charge.schema.js';
 import { MovementKind, StockMovement } from '../src/inventory/schemas/stock-movement.schema.js';
 import { OutboxEvent } from '../src/orders/outbox/outbox-event.schema.js';
 import { OutboxRepository } from '../src/orders/outbox/outbox.repository.js';

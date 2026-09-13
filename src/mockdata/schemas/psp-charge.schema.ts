@@ -8,9 +8,11 @@ export enum ChargeStatus {
 
 /**
  * The mock PSP's own ledger. This models storage that belongs to the *external*
- * payment provider, not to us: it is written and read only by PaymentService,
- * and never participates in an order transaction - joining it transactionally
- * would model something that cannot exist across a network boundary.
+ * payment provider, not to us: it is written and read only by the mock PSP
+ * endpoints, and never participates in an order transaction - joining it
+ * transactionally would model something that cannot exist across a network
+ * boundary (PaymentService now reaches it over HTTP, same as it would a real
+ * gateway).
  *
  * It is persisted rather than held in memory because the scenario worth
  * demonstrating is "the worker charged the card and then died". An in-memory

@@ -8,19 +8,23 @@ import { Connection, Types } from 'mongoose';
 import { vi } from 'vitest';
 
 import { OrdersModule } from '../../src/orders/orders.module.js';
+import { MockDataModule } from '../../src/mockdata/mockdata.module.js';
 import { ORDER_SAGA_QUEUE } from '../../src/orders/queue/order-queue.constants.js';
 import { DomainExceptionFilter } from '../../src/common/filters/domain-exception.filter.js';
 import { Product } from '../../src/inventory/schemas/product.schema.js';
 import { Stock } from '../../src/inventory/schemas/stock.schema.js';
 import { Warehouse } from '../../src/inventory/schemas/warehouses.schema.js';
-import { Customer } from '../../src/customers/schemas/customers.schema.js';
+import { Customer } from '../../src/mockdata/schemas/customer.schema.js';
+import { MockAddress } from '../../src/mockdata/schemas/mock-address.schema.js';
 import { OrderSagaProcessor } from '../../src/orders/order-saga.processor.js';
 import { OrderReconciliationService } from '../../src/orders/order-reconciliation.service.js';
 import { OutboxRelayService } from '../../src/orders/outbox/outbox-relay.service.js';
 import { OrdersRepository } from '../../src/orders/orders.repository.js';
 import { InventoryService } from '../../src/inventory/inventory.service.js';
-import { PaymentService } from '../../src/payment/payment.service.js';
-import { CustomersService } from '../../src/customers/customers.service.js';
+import { PaymentService, PSP_LOCATION } from '../../src/payment/payment.service.js';
+import { CustomersService, CUSTOMER_LOCATION } from '../../src/customers/customers.service.js';
+import { GEOCODING_LOCATION } from '../../src/geocoding/geocoding.service.js';
+import type { RemoteServiceLocation } from '../../src/common/remote-location.js';
 import type { Job } from 'bullmq';
 import type { OrderSagaJobData } from '../../src/orders/queue/order-queue.constants.js';
 
@@ -76,6 +80,11 @@ export async function createTestHarness(envOverrides: Record<string, string> = {
       ScheduleModule.forRoot(),
       MongooseModule.forRoot(process.env.MONGO_URI as string),
       OrdersModule,
+      // OrdersModule has no dependency on this - it's here because the app
+      // needs MockDataModule's controllers mounted for Payment/Customers/
+      // Geocoding's real HTTP calls to land somewhere, same as AppModule does
+      // for the full app.
+      MockDataModule,
     ],
   })
     .overrideProvider(getQueueToken(ORDER_SAGA_QUEUE))
@@ -89,6 +98,17 @@ export async function createTestHarness(envOverrides: Record<string, string> = {
   // server per request: the concurrency tests fire ten requests at once, and
   // per-request servers reset connections under that load.
   await app.listen(0);
+
+  // Payment/Customers/Geocoding each call their own configured location over
+  // real loopback HTTP; all three default to the mockdata module mounted on
+  // this same app. None of that is known until now, since the port is
+  // OS-assigned - this corrects each one to the port actually bound above.
+  const address = app.getHttpServer().address();
+  const port = typeof address === 'object' && address ? address.port : address;
+  const base = `http://127.0.0.1:${port}`;
+  moduleRef.get<RemoteServiceLocation>(PSP_LOCATION, { strict: false }).setBaseUrl(`${base}/psp`);
+  moduleRef.get<RemoteServiceLocation>(CUSTOMER_LOCATION, { strict: false }).setBaseUrl(`${base}/customers`);
+  moduleRef.get<RemoteServiceLocation>(GEOCODING_LOCATION, { strict: false }).setBaseUrl(`${base}/addresses`);
 
   // Unregister the reconciliation cron. Tests invoke sweep() themselves; a
   // timer firing mid-test would rewrite order state under an assertion.
@@ -136,12 +156,21 @@ export interface SeedResult {
   unitPriceMinor: number;
 }
 
-/** One customer, one product, one warehouse in Chicago with `quantity` in stock. */
+/**
+ * One customer, one product, one warehouse in Chicago with `quantity` in
+ * stock, plus a 'Chicago' entry in the mock geocoder's address book.
+ *
+ * The address entry matters because `resetDatabase` wipes every collection,
+ * including the mockdata module's own - so the default cities it seeds once
+ * at startup do not survive past the first test. Every test that geocodes
+ * 'Chicago' relies on this being reseeded here, right after each reset.
+ */
 export async function seedCatalogue(harness: TestHarness, quantity = 10, price = 25): Promise<SeedResult> {
   const customerModel = harness.moduleRef.get(getModelToken(Customer.name));
   const productModel = harness.moduleRef.get(getModelToken(Product.name));
   const warehouseModel = harness.moduleRef.get(getModelToken(Warehouse.name));
   const stockModel = harness.moduleRef.get(getModelToken(Stock.name));
+  const addressModel = harness.moduleRef.get(getModelToken(MockAddress.name));
 
   const customer = await customerModel.create({
     name: 'Ada Lovelace',
@@ -153,6 +182,7 @@ export async function seedCatalogue(harness: TestHarness, quantity = 10, price =
     location: { type: 'Point', coordinates: [-87.6298, 41.8781] }, // Chicago
   });
   await stockModel.create({ productId: product._id, warehouseId: warehouse._id, quantity });
+  await addressModel.create({ address: 'Chicago', latitude: 41.8781, longitude: -87.6298 });
 
   return {
     customerId: customer._id.toString(),

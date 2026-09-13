@@ -1,11 +1,9 @@
 import { Module } from "@nestjs/common";
-import { MongooseModule } from "@nestjs/mongoose";
-import { Customer, CustomerSchema } from "./schemas/customers.schema.js";
-import { CustomersService } from "./customers.service.js";
+import { CustomersService, CUSTOMER_LOCATION } from "./customers.service.js";
+import { remoteLocationProvider } from "../common/remote-location.js";
 
 @Module({
-  imports: [MongooseModule.forFeature([{ name: Customer.name, schema: CustomerSchema }])],
-  providers: [CustomersService],
+  providers: [CustomersService, remoteLocationProvider(CUSTOMER_LOCATION, 'CUSTOMER_BASE_URL', '/customers')],
   exports: [CustomersService],
   controllers: [],
 })
