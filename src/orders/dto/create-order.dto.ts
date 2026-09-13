@@ -1,20 +1,28 @@
-import { IsArray, IsInt, IsString, IsUUID } from 'class-validator';
+import { Type } from 'class-transformer';
+import { ArrayNotEmpty, IsArray, IsInt, IsMongoId, IsNotEmpty, IsPositive, IsString, Min, ValidateNested } from 'class-validator';
 
 export class ItemDto {
-  @IsString()
+  @IsMongoId()
   productId: string;
 
   @IsInt()
+  @IsPositive()
+  @Min(1)
   quantity: number;
 }
 
+
 export class CreateOrderDto {
-  @IsUUID()
-  customer: string;
+  @IsMongoId()
+  customerId: string;
 
   @IsString()
+  @IsNotEmpty()
   shippingAddress: string;
 
   @IsArray()
+  @ArrayNotEmpty()
+  @ValidateNested({ each: true })
+  @Type(() => ItemDto)
   items: Array<ItemDto>;
 }
