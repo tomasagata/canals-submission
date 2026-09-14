@@ -14,7 +14,7 @@
       <h1>Orders</h1>
       <div class="topbar-actions">
         <button id="btn-open-testlab" class="icon-btn" title="Test lab" aria-label="Test lab">&#x1F9EA;</button>
-        <button id="btn-open-settings" class="icon-btn" title="Settings" aria-label="Settings">&#x2699;&#xFE0F;</button>
+        <button id="btn-open-data" class="icon-btn" title="Data" aria-label="Data">&#x2699;&#xFE0F;</button>
       </div>
     </header>
 
@@ -55,15 +55,21 @@
     </main>
   </section>
 
-  <!-- SETTINGS SCREEN -->
-  <section id="screen-settings" class="screen" hidden>
+  <!-- DATA SCREEN -->
+  <section id="screen-data" class="screen" hidden>
     <header class="topbar">
       <button type="button" class="icon-btn btn-back" data-back-to="screen-orders" title="Back" aria-label="Back">&#x2190;</button>
-      <h1>Settings</h1>
+      <h1>Data</h1>
     </header>
-    <main class="content">
-      <p class="placeholder">Test settings (warehouses, etc.) coming soon.</p>
-    </main>
+    <nav class="tabs" id="data-tabs">
+      <button type="button" class="tab-btn" data-tab="products">Products</button>
+      <button type="button" class="tab-btn" data-tab="locations">Locations</button>
+      <button type="button" class="tab-btn" data-tab="warehouses">Warehouses</button>
+      <button type="button" class="tab-btn" data-tab="stock">Stock</button>
+      <button type="button" class="tab-btn" data-tab="customers">Customers</button>
+      <button type="button" class="tab-btn" data-tab="credit-cards">Credit Cards</button>
+    </nav>
+    <main id="data-tab-content" class="content"></main>
   </section>
 
   <!-- TEST LAB SCREEN -->

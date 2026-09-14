@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Warehouse, WarehouseSchema } from '../inventory/schemas/warehouses.schema.js';
+import { Stock, StockSchema } from '../inventory/schemas/stock.schema.js';
 import { Customer, CustomerSchema } from './schemas/customer.schema.js';
 import { PspCharge, PspChargeSchema } from './schemas/psp-charge.schema.js';
 import { MockAddress, MockAddressSchema } from './schemas/mock-address.schema.js';
@@ -14,12 +15,14 @@ import { MockDataAddressesService } from './mockdata-addresses.service.js';
 import { MockDataCreditCardsService } from './mockdata-credit-cards.service.js';
 import { MockDataPspService } from './mockdata-psp.service.js';
 import { MockDataProductsService } from './mockdata-products.service.js';
+import { MockDataStockService } from './mockdata-stock.service.js';
 import { MockDataWarehousesController } from './warehouses.controller.js';
 import { MockDataCustomersController } from './customers.controller.js';
 import { MockDataAddressesController } from './addresses.controller.js';
 import { MockDataCreditCardsController } from './credit-cards.controller.js';
 import { MockDataPspController } from './psp.controller.js';
 import { MockDataProductsController } from './products.controller.js';
+import { MockDataStockController } from './stock.controller.js';
 
 /**
  * Stands in for every third-party system this app talks to: the PSP, the
@@ -47,6 +50,7 @@ import { MockDataProductsController } from './products.controller.js';
       { name: MockAddress.name, schema: MockAddressSchema },
       { name: MockCreditCard.name, schema: MockCreditCardSchema },
       { name: Product.name, schema: ProductSchema },
+      { name: Stock.name, schema: StockSchema },
     ]),
   ],
   controllers: [
@@ -56,6 +60,7 @@ import { MockDataProductsController } from './products.controller.js';
     MockDataCreditCardsController,
     MockDataPspController,
     MockDataProductsController,
+    MockDataStockController,
   ],
   providers: [
     MockDataWarehousesService,
@@ -64,6 +69,7 @@ import { MockDataProductsController } from './products.controller.js';
     MockDataCreditCardsService,
     MockDataPspService,
     MockDataProductsService,
+    MockDataStockService,
   ],
 })
 export class MockDataModule {}
