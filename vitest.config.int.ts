@@ -1,5 +1,4 @@
 import { defineConfig } from 'vitest/config';
-import tsconfigPaths from 'vite-tsconfig-paths';
 
 /**
  * Integration suite. These tests run against a real (in-memory) MongoDB
@@ -11,7 +10,6 @@ import tsconfigPaths from 'vite-tsconfig-paths';
  * Kept separate from `npm test` so the default suite stays fast and offline.
  */
 export default defineConfig({
-  plugins: [tsconfigPaths()],
   test: {
     globals: true,
     root: './',
@@ -23,5 +21,8 @@ export default defineConfig({
     fileParallelism: false,
     testTimeout: 30_000,
     hookTimeout: 60_000,
+    resolve: {
+      tsconfigPaths: true
+    }
   },
 });
