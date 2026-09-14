@@ -1,0 +1,59 @@
+services:
+  mongo:
+    image: mongo:7
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  mongo-init:
+    image: mongo:7
+    depends_on:
+      mongo:
+        condition: service_healthy
+    command: >
+      mongosh --host mongo --quiet --eval
+      "try { rs.status() } catch (e) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongo:27017'}]}) }"
+    restart: "no"
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: .
+    ports:
+      - "4000:4000"
+    environment:
+      MONGO_URI: mongodb://mongo:27017/canals?replicaSet=rs0&directConnection=true
+      REDIS_URI: redis://redis:6379
+      PORT: 4000
+      PSP_BASE_URL: http://localhost:4000/psp
+      CUSTOMER_BASE_URL: http://localhost:4000/customers
+      GEOCODING_BASE_URL: http://localhost:4000/addresses
+      CATALOG_BASE_URL: http://localhost:4000/products
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  frontend:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    depends_on:
+      - app
+
+volumes:
+  mongo-data:

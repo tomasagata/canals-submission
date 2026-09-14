@@ -5,11 +5,29 @@ picks the nearest warehouse able to fill the order and charges the customer, bui
 survive dropped connections, retried requests, and redelivered background jobs without
 double-charging or double-decrementing stock.
 
-## Prerequisites
+## Running it
+
+### Docker (simplest)
+
+Brings up an already-initialized MongoDB replica set, Redis, the API (which also runs
+the saga worker, outbox relay, and reconciliation sweeper in-process, per §2), and the
+static frontend — no local Mongo/Redis install, no `.env` needed for the default setup:
+
+```bash
+docker compose up --build
+```
+
+- API: `http://localhost:4000`
+- Frontend: `http://localhost:8080`
+
+`docker compose down` stops everything and keeps the Mongo volume; add `-v` to wipe it.
+
+### Manual
 
 MongoDB must run as a replica set (the reservation/release logic uses multi-document
 transactions) and Redis is required for the background job queue. See `.env.example`
-for every setting.
+for every setting. Use this path instead of Docker when you want `npm run start:dev`
+hot-reload during development.
 
 ```bash
 mongod --replSet rs0 --dbpath /your/data/path

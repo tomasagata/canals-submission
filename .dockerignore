@@ -1,0 +1,11 @@
+node_modules
+dist
+coverage
+.git
+.env
+.env.example
+test
+frontend
+*.md
+.claude
+*.tsbuildinfo
