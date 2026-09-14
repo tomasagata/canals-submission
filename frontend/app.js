@@ -107,8 +107,19 @@ document.getElementById("btn-add-item").addEventListener("click", addItemRow);
 
 const idempotencyKeyField = document.getElementById("field-idempotency-key");
 
+// crypto.randomUUID() only exists in secure contexts (HTTPS or localhost),
+// so fall back to crypto.getRandomValues() when served over plain HTTP.
+function generateUUID() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 function autofillIdempotencyKey() {
-  idempotencyKeyField.value = crypto.randomUUID();
+  idempotencyKeyField.value = generateUUID();
 }
 
 // ---------- new order form: submit ----------
@@ -121,7 +132,7 @@ orderForm.addEventListener("submit", async (event) => {
 
   const customerId = document.getElementById("field-customer").value;
   const shippingAddress = document.getElementById("field-address").value;
-  const idempotencyKey = idempotencyKeyField.value.trim() || crypto.randomUUID();
+  const idempotencyKey = idempotencyKeyField.value.trim() || generateUUID();
 
   const items = Array.from(itemsList.querySelectorAll(".item-row")).map((row) => ({
     productId: row.querySelector(".item-product").value,
