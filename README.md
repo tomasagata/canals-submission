@@ -67,40 +67,7 @@ not the whole platform:
   (another deployable, another network hop) without adding anything the reviewer asked
   to see.
 
-```mermaid
-graph LR
-    FE[Frontend]
-
-    subgraph Orders Service
-        API[Orders API]
-        Worker[Saga Worker]
-        Sweeper[Reconciliation Sweeper]
-        Inv[(Warehouse & Stock<br/>selection + reservation)]
-    end
-
-    DB[(MongoDB<br/>replica set)]
-    MQ[(Redis / BullMQ)]
-
-    Customer[Customer Service]
-    Catalog[Catalog Service]
-    Geo[Geocoding API]
-    PSP[Payment PSP API]
-
-    FE -->|POST /orders<br/>GET /orders/:id| API
-    API -->|validate customer| Customer
-    API -->|price & validate items| Catalog
-    API -->|resolve shipping address| Geo
-    API --> DB
-    API --> MQ
-
-    Worker --> Inv
-    Worker -->|authorize charge| PSP
-    Worker --> DB
-    Worker --> MQ
-
-    Sweeper -->|reconcile stuck orders| PSP
-    Sweeper --> DB
-```
+![Architecture overview](docs/solution.png)
 
 `POST /orders` itself only talks to Customer/Catalog/Geocoding — synchronously, on the
 request path, to validate and price the order and to freeze its shipping coordinates.
@@ -300,6 +267,8 @@ module's CRUD endpoints is immediately usable by a real order.
 This module is explicitly a development/testing aid, not something meant to ship to
 production — it stands in for infrastructure a real deployment would never own itself
 (another company's payment gateway, another team's customer service).
+
+![Mock data screen](docs/mockdata.png)
 
 ## Testing
 
