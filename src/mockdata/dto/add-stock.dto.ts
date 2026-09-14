@@ -1,12 +1,10 @@
-import { IsNotEmpty, IsNumber, IsPositive, IsString } from 'class-validator';
+import { IsMongoId, IsNumber, IsPositive } from 'class-validator';
 
 export class AddStockDto {
-  @IsString()
-  @IsNotEmpty()
+  @IsMongoId()
   warehouseId: string;
 
-  @IsString()
-  @IsNotEmpty()
+  @IsMongoId()
   productId: string;
 
   @IsNumber()

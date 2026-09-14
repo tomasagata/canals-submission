@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common';
 import { getConnectionToken, getModelToken, MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule, SchedulerRegistry } from '@nestjs/schedule';
@@ -11,6 +11,7 @@ import { OrdersModule } from '../../src/orders/orders.module.js';
 import { MockDataModule } from '../../src/mockdata/mockdata.module.js';
 import { ORDER_SAGA_QUEUE } from '../../src/orders/queue/order-queue.constants.js';
 import { DomainExceptionFilter } from '../../src/common/filters/domain-exception.filter.js';
+import { createValidationPipe } from '../../src/common/pipes/create-validation-pipe.js';
 import { Stock } from '../../src/inventory/schemas/stock.schema.js';
 import { Warehouse } from '../../src/inventory/schemas/warehouses.schema.js';
 import { Customer } from '../../src/mockdata/schemas/customer.schema.js';
@@ -93,7 +94,7 @@ export async function createTestHarness(envOverrides: Record<string, string> = {
     .compile();
 
   const app = moduleRef.createNestApplication();
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+  app.useGlobalPipes(createValidationPipe());
   app.useGlobalFilters(new DomainExceptionFilter());
   // Listen on an ephemeral port rather than relying on supertest to spin up a
   // server per request: the concurrency tests fire ten requests at once, and
@@ -176,7 +177,6 @@ export async function seedCatalogue(harness: TestHarness, quantity = 10, price =
 
   const customer = await customerModel.create({
     name: 'Ada Lovelace',
-    address: 'Chicago',
     creditCard: '4111111111111111',
   });
   const product = await productModel.create({ name: 'Widget', description: 'A widget', price });

@@ -14,9 +14,6 @@ export class Customer {
   @Prop({ type: String, required: true })
   name: string;
 
-  @Prop({ type: String, required: true })
-  address: string;
-
   @Prop({ type: String, required: true})
   creditCard: string;
 }

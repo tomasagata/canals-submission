@@ -1,10 +1,11 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
 import { ConfigService } from '@nestjs/config';
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { getConnectionToken } from '@nestjs/mongoose';
 import { Connection } from 'mongoose';
 import { DomainExceptionFilter } from './common/filters/domain-exception.filter.js';
+import { createValidationPipe } from './common/pipes/create-validation-pipe.js';
 
 /**
  * Every write path in this service - accepting an order, reserving stock,
@@ -30,7 +31,7 @@ async function bootstrap() {
   const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule);
 
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+  app.useGlobalPipes(createValidationPipe());
   app.useGlobalFilters(new DomainExceptionFilter());
   app.enableCors();
   // Required for the queue worker and the outbox relay to shut down cleanly on

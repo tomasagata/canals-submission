@@ -1,4 +1,5 @@
-import { IsInt, IsNotEmpty, IsString, Min } from 'class-validator';
+import { IsInt, IsNotEmpty, IsString, Min, MaxLength } from 'class-validator';
+import { MAX_IDEMPOTENCY_KEY_LENGTH } from '../../common/decorators/idempotency-key.decorator.js';
 
 /**
  * The wire shape of a POST to the mock PSP's authorize endpoint. Kept
@@ -10,10 +11,12 @@ import { IsInt, IsNotEmpty, IsString, Min } from 'class-validator';
 export class AuthorizeChargeDto {
   @IsString()
   @IsNotEmpty()
+  @MaxLength(MAX_IDEMPOTENCY_KEY_LENGTH)
   idempotencyKey: string;
 
   @IsString()
   @IsNotEmpty()
+  @MaxLength(200)
   creditCard: string;
 
   @IsInt()
@@ -22,5 +25,6 @@ export class AuthorizeChargeDto {
 
   @IsString()
   @IsNotEmpty()
+  @MaxLength(1000)
   description: string;
 }

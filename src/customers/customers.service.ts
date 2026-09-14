@@ -8,7 +8,6 @@ export const CUSTOMER_LOCATION = Symbol('CUSTOMER_LOCATION');
 export interface Customer {
   id: string;
   name: string;
-  address: string;
   creditCard: string;
 }
 

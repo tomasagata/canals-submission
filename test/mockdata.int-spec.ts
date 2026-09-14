@@ -56,7 +56,7 @@ describe('Mockdata module', () => {
     it('adds a customer over the API and immediately uses it to place a real order', async () => {
       const created = await http()
         .post('/customers')
-        .send({ name: 'Grace Hopper', address: 'Chicago', creditCard: '4242424242424242' })
+        .send({ name: 'Grace Hopper', creditCard: '4242424242424242' })
         .expect(201);
 
       const response = await http()

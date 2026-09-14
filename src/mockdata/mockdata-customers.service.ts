@@ -7,12 +7,11 @@ import { CreateCustomerDto } from './dto/index.js';
 export interface CustomerDto {
   id: string;
   name: string;
-  address: string;
   creditCard: string;
 }
 
-function toDto(customer: { _id: Types.ObjectId; name: string; address: string; creditCard: string }): CustomerDto {
-  return { id: customer._id.toString(), name: customer.name, address: customer.address, creditCard: customer.creditCard };
+function toDto(customer: { _id: Types.ObjectId; name: string; creditCard: string }): CustomerDto {
+  return { id: customer._id.toString(), name: customer.name, creditCard: customer.creditCard };
 }
 
 @Injectable()
