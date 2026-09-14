@@ -10,7 +10,6 @@ function showScreen(id) {
 }
 
 document.getElementById("btn-open-data").addEventListener("click", () => showScreen("screen-data"));
-document.getElementById("btn-open-testlab").addEventListener("click", () => showScreen("screen-testlab"));
 document.querySelectorAll(".btn-back").forEach((btn) => {
   btn.addEventListener("click", () => showScreen(btn.dataset.backTo));
 });
@@ -218,6 +217,24 @@ document.getElementById("btn-refresh-orders").addEventListener("click", loadOrde
 
 // ---------- data screen ----------
 
+function coordKey(latitude, longitude) {
+  return `${String(latitude)},${String(longitude)}`;
+}
+
+async function loadWarehouseAddressContext() {
+  const locations = await apiFetch(DATA_ENTITIES.locations.endpoint);
+  const addressByCoords = new Map();
+  for (const location of locations) {
+    addressByCoords.set(coordKey(location.latitude, location.longitude), location.address);
+  }
+  return { addressByCoords };
+}
+
+function warehouseLabel(item, context) {
+  const address = context?.addressByCoords.get(coordKey(item.latitude, item.longitude));
+  return `${item.id} — ${address ? `${address} — ` : ""}(${item.latitude}, ${item.longitude})`;
+}
+
 const DATA_ENTITIES = {
   products: {
     label: "Products",
@@ -246,17 +263,35 @@ const DATA_ENTITIES = {
     endpoint: "/warehouses",
     canDelete: true,
     fields: [
-      { name: "latitude", label: "Latitude", type: "number", required: true },
-      { name: "longitude", label: "Longitude", type: "number", required: true },
+      {
+        name: "locationId",
+        label: "Location",
+        type: "select",
+        required: true,
+        source: "locations",
+        optionValue: "id",
+        optionLabel: "address",
+        mapToFields: (item) => ({ latitude: item.latitude, longitude: item.longitude }),
+      },
     ],
-    renderRow: (item) => `${item.id} — (${item.latitude}, ${item.longitude})`,
+    loadRowContext: loadWarehouseAddressContext,
+    renderRow: warehouseLabel,
   },
   stock: {
     label: "Stock",
     endpoint: "/stock",
     canDelete: false,
     fields: [
-      { name: "warehouseId", label: "Warehouse", type: "select", required: true, source: "warehouses", optionValue: "id", optionLabel: "id" },
+      {
+        name: "warehouseId",
+        label: "Warehouse",
+        type: "select",
+        required: true,
+        source: "warehouses",
+        optionValue: "id",
+        optionLabel: warehouseLabel,
+        loadOptionContext: loadWarehouseAddressContext,
+      },
       { name: "productId", label: "Product", type: "select", required: true, source: "products", optionValue: "id", optionLabel: "name" },
       { name: "quantity", label: "Quantity", type: "number", required: true },
     ],
@@ -268,10 +303,9 @@ const DATA_ENTITIES = {
     canDelete: true,
     fields: [
       { name: "name", label: "Name", type: "text", required: true },
-      { name: "address", label: "Address", type: "select", required: true, source: "locations", optionValue: "address", optionLabel: "address" },
       { name: "creditCard", label: "Credit card", type: "select", required: true, source: "credit-cards", optionValue: "cardNumber", optionLabel: "cardNumber" },
     ],
-    renderRow: (item) => `${item.name} — ${item.address} — card ${item.creditCard}`,
+    renderRow: (item) => `${item.name} — card ${item.creditCard}`,
   },
   "credit-cards": {
     label: "Credit Cards",
@@ -304,6 +338,7 @@ async function renderDataForm(tabKey) {
   container.appendChild(card);
 
   const form = card.querySelector("form");
+  const sourceItemsByField = {};
 
   for (const field of entity.fields) {
     const label = document.createElement("label");
@@ -324,8 +359,21 @@ async function renderDataForm(tabKey) {
         select.innerHTML = `<option value="" disabled selected>Loading&hellip;</option>`;
         try {
           const items = await apiFetch(DATA_ENTITIES[field.source].endpoint);
+          sourceItemsByField[field.name] = items;
+          let optionContext;
+          if (field.loadOptionContext) {
+            try {
+              optionContext = await field.loadOptionContext();
+            } catch (err) {
+              optionContext = undefined;
+            }
+          }
+          const getOptionLabel =
+            typeof field.optionLabel === "function"
+              ? (it) => field.optionLabel(it, optionContext)
+              : (it) => it[field.optionLabel];
           select.innerHTML = items.length
-            ? items.map((it) => `<option value="${it[field.optionValue]}">${it[field.optionLabel]}</option>`).join("")
+            ? items.map((it) => `<option value="${it[field.optionValue]}">${getOptionLabel(it)}</option>`).join("")
             : `<option value="" disabled selected>No options found</option>`;
         } catch (err) {
           select.innerHTML = `<option value="" disabled selected>Failed to load</option>`;
@@ -359,7 +407,13 @@ async function renderDataForm(tabKey) {
     for (const field of entity.fields) {
       const value = document.getElementById(dataFieldId(tabKey, field.name)).value;
       if (!value) continue;
-      body[field.name] = field.type === "number" ? Number(value) : value;
+      if (field.mapToFields) {
+        const items = sourceItemsByField[field.name] || [];
+        const selected = items.find((it) => String(it[field.optionValue]) === value);
+        if (selected) Object.assign(body, field.mapToFields(selected));
+      } else {
+        body[field.name] = field.type === "number" ? Number(value) : value;
+      }
     }
     submitBtn.disabled = true;
     setMessage(message, "Saving…", "info");
@@ -407,6 +461,14 @@ async function fetchAndRenderDataList(tabKey) {
 
   try {
     const items = await apiFetch(entity.endpoint);
+    let context;
+    if (entity.loadRowContext) {
+      try {
+        context = await entity.loadRowContext();
+      } catch (err) {
+        context = undefined;
+      }
+    }
     list.innerHTML = "";
     if (!items.length) {
       setMessage(message, `No ${entity.label.toLowerCase()} yet.`, "info");
@@ -417,7 +479,7 @@ async function fetchAndRenderDataList(tabKey) {
       const li = document.createElement("li");
       li.className = "data-row";
       li.innerHTML = `
-        <span class="data-row-info">${entity.renderRow(item)}</span>
+        <span class="data-row-info">${entity.renderRow(item, context)}</span>
         ${entity.canDelete ? `<button type="button" class="btn-remove-item" aria-label="Delete">&times;</button>` : ""}
       `;
       if (entity.canDelete) {

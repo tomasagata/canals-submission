@@ -239,11 +239,6 @@ form select {
   word-break: break-word;
 }
 
-.placeholder {
-  color: #777;
-  font-style: italic;
-}
-
 .tabs {
   display: flex;
   gap: 8px;
