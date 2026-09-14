@@ -1,286 +1,286 @@
 # Orders Service
 
-An order-processing service built around three properties: a retried request
-never creates a second order, a redelivered background job never charges a card
-or decrements stock twice, and no order can be stranded in a half-finished state
-by a crash.
-
-There is no application-level distributed lock anywhere. Every guarantee below
-comes from atomic database operations — unique indexes, compare-and-swap
-updates, and transactions — which is what makes the system safe across any
-number of instances without coordination.
-
----
+Backend implementation of the Canals take-home order-management API: `POST /orders`
+picks the nearest warehouse able to fill the order and charges the customer, built to
+survive dropped connections, retried requests, and redelivered background jobs without
+double-charging or double-decrementing stock.
 
 ## Prerequisites
 
-**MongoDB must run as a replica set.** Every write path uses a multi-document
-transaction, and MongoDB only offers transactions on a replica set. One node is
-enough:
+MongoDB must run as a replica set (the reservation/release logic uses multi-document
+transactions) and Redis is required for the background job queue. See `.env.example`
+for every setting.
 
 ```bash
 mongod --replSet rs0 --dbpath /your/data/path
 mongosh --eval 'rs.initiate()'
-mongosh --eval 'rs.status()'      # confirm before starting the app
-```
 
-Then point `MONGO_URI` at it with `?replicaSet=rs0&directConnection=true`. The
-app verifies this at boot and refuses to start with an explicit message, rather
-than failing cryptically on the first request.
-
-Redis is also required (BullMQ). See `.env.example` for every setting.
-
-```bash
 npm install
 cp .env.example .env
 npm run start:dev
 ```
 
----
+## 1. Environment assumptions & architecture
 
-## Architecture
+This service is written as if it were one participant in a larger e-commerce platform,
+not the whole platform:
+
+- **Customer/user data** lives in a separate customer service, reached over HTTP.
+- **Product/catalog data** (existence, pricing) lives in a separate catalog service,
+  reached over HTTP.
+- **Geocoding** (shipping address → lat/lng) is a third-party API, reached over HTTP.
+- **Payments** are handled by an external PSP, reached over HTTP, given only a card
+  number, amount, and description — this service never stores card data.
+- **This "orders" service** owns two things that the take-home explicitly scoped to a
+  single service:
+  1. choosing, for a given order, the nearest warehouse that can fill it, and
+  2. running the order lifecycle — reserve stock, charge the card, settle — as an
+     idempotent process that survives crashes and retries.
+
+  Warehouse/stock selection and order-lifecycle orchestration are arguably two
+  different bounded contexts (inventory vs. order orchestration), and in a real system
+  I'd likely split them. I kept them in one service here because the assignment asked
+  for a single order-management API and splitting it would have added infrastructure
+  (another deployable, another network hop) without adding anything the reviewer asked
+  to see.
+
+```mermaid
+graph LR
+    FE[Frontend]
+
+    subgraph Orders Service
+        API[Orders API]
+        Worker[Saga Worker]
+        Sweeper[Reconciliation Sweeper]
+        Inv[(Warehouse & Stock<br/>selection + reservation)]
+    end
+
+    DB[(MongoDB<br/>replica set)]
+    MQ[(Redis / BullMQ)]
+
+    Customer[Customer Service]
+    Catalog[Catalog Service]
+    Geo[Geocoding API]
+    PSP[Payment PSP API]
+
+    FE -->|POST /orders<br/>GET /orders/:id| API
+    API -->|validate customer| Customer
+    API -->|price & validate items| Catalog
+    API -->|resolve shipping address| Geo
+    API --> DB
+    API --> MQ
+
+    Worker --> Inv
+    Worker -->|authorize charge| PSP
+    Worker --> DB
+    Worker --> MQ
+
+    Sweeper -->|reconcile stuck orders| PSP
+    Sweeper --> DB
+```
+
+`POST /orders` itself only talks to Customer/Catalog/Geocoding — synchronously, on the
+request path, to validate and price the order and to freeze its shipping coordinates.
+The PSP is only ever called later, asynchronously, by the saga worker. This split is
+what makes the API response fast and makes the payment step retriable independently of
+the request/response cycle (see §2).
+
+## 2. The ordering process
+
+### Why it's asynchronous
+
+`POST /orders` returns **`202 Accepted`** immediately, with the order in `PENDING`
+status and a `self` link — it does not wait for stock to be reserved or the card to be
+charged before responding.
+
+This is deliberate, not incidental:
+
+- Reserving stock and charging a card both require calling into other systems
+  (inventory selection touches the database in a transaction; payment is a third-party
+  HTTP call to a PSP). If any of that ran synchronously inside the request and the
+  client's connection dropped mid-flight — a mobile client losing signal, a proxy
+  timeout — the client would have no idea whether the order (and the charge!) actually
+  went through, and a naive retry could double-charge the customer. Making the API
+  call itself cheap and idempotent (see the idempotency-key handling below), and doing
+  the risky work in a background job that keeps retrying until it durably succeeds or
+  durably fails, removes that failure mode entirely: the order's fate no longer depends
+  on the frontend's connection staying alive.
+- It decouples the request's latency from the latency of two external systems (PSP,
+  geocoding-adjacent inventory lookups) that this service doesn't control.
+
+### How the frontend is meant to consume it
+
+Because the order isn't settled when the API responds, the frontend polls for the
+result using a second endpoint added for exactly this purpose:
 
 ```
-POST /orders ──txn{ Order:PENDING , Outbox:NEW }──> 202 Accepted
-                              │                     { orderId, status, self }
-                 OutboxRelayService (polls, 1s)
-                 claimNext() ──> queue.add() ──> markDispatched()
-                              │
-                 OrderSagaProcessor (BullMQ)
-                 reserve stock ──> authorize payment ──> complete
-                              │
-                 OrderReconciliationService (@Cron, 30s)
-                 claim stale order ──> ask the PSP what really happened
+GET /orders/:id
 ```
 
-The request path does no third-party work at all. It validates, prices, and
-durably records the order — then returns. Everything else happens behind it.
+which returns the order's current `status`, a computed `settled` boolean, and (once
+available) the assigned warehouse, payment result, or failure reason. The `202`
+response from `POST /orders` includes a `self` link pointing at this endpoint, so the
+frontend doesn't need to construct the URL itself.
 
-### Status machine
+I chose polling (every 2–3 seconds is plenty) over a push mechanism like Server-Sent
+Events or WebSockets. Real-time delivery isn't a requirement here — nobody needs to
+watch a stock reservation happen millisecond by millisecond — and a push mechanism
+would require this service to hold open connections and track which client cares about
+which order, which is state this service would otherwise never need to keep. Polling
+keeps the backend fully stateless with respect to "who is watching," at the cost of a
+few seconds of latency in the UI, which is a trade I'll take for an order-confirmation
+screen.
 
+### High-level flow — happy path
+
+1. Frontend submits `POST /orders` with a customer, shipping address, items, and an
+   `Idempotency-Key` header.
+2. The service validates the customer, prices the items against the catalog, geocodes
+   the shipping address, and durably records the order as `PENDING` — then responds
+   `202` with the order id.
+3. In the background, a worker picks up the new order and:
+   a. Finds the nearest warehouse that can fill the whole order and reserves the stock
+      there → order becomes `STOCK_RESERVED`.
+   b. Authorizes a charge against the customer's card for the order total → order
+      becomes `PAYMENT_AUTHORIZED`.
+   c. Marks the order `COMPLETED` (terminal).
+4. The frontend, polling `GET /orders/:id`, sees the status progress and stops once
+   `settled` is `true`.
+
+```mermaid
+sequenceDiagram
+    actor FE as Frontend
+    participant API as Orders API
+    participant DB as MongoDB
+    participant Worker as Saga Worker
+    participant Inv as Warehouse/Stock
+    participant PSP as Payment PSP
+
+    FE->>API: POST /orders (Idempotency-Key, customer, address, items)
+    API->>DB: txn: insert Order(PENDING) + Outbox event
+    API-->>FE: 202 Accepted { orderId, status: PENDING, self }
+
+    par background processing
+        DB-->>Worker: outbox event picked up, job enqueued
+        Worker->>Inv: reserve stock (nearest warehouse with full stock)
+        Inv-->>Worker: reserved at warehouse W
+        Worker->>DB: PENDING -> STOCK_RESERVED
+        Worker->>PSP: authorize(idempotencyKey=orderId, amount, description)
+        PSP-->>Worker: approved
+        Worker->>DB: STOCK_RESERVED -> PAYMENT_AUTHORIZED
+        Worker->>DB: PAYMENT_AUTHORIZED -> COMPLETED
+    and frontend polling
+        loop every 2-3s until settled
+            FE->>API: GET /orders/:id
+            API-->>FE: { status, settled }
+        end
+    end
 ```
-            ┌─ FAILED (terminal; nothing was reserved)
-PENDING ────┤
-            └─ STOCK_RESERVED ─┬─ PAYMENT_AUTHORIZED ── COMPLETED (terminal)
-                               └─ COMPENSATING ── COMPENSATED (terminal)
-```
 
-Every transition is a compare-and-swap conditioned on the exact expected prior
-status (`OrdersRepository.transition`). A `null` result means another actor —
-another delivery, or the sweeper — already advanced this order and now owns
-finishing it, so the caller stops without side effects. This single primitive is
-what lets the worker and the sweeper both act on the same order at the same time
-without a lock.
+### Failure paths
 
-`COMPENSATING` is a state rather than an implicit property of `FAILED`, so
-"a release is owed" is explicit, indexable, and survives a crash mid-release.
+**No warehouse has enough stock.** The worker searches every candidate warehouse
+(nearest first) and finds none that can fill the full order. Nothing was ever reserved
+or charged, so there's nothing to undo: the order moves straight `PENDING → FAILED`
+(terminal) with a machine-readable reason the frontend can show to the customer.
 
----
+**The card is declined (insufficient funds, etc.).** By this point stock has already
+been reserved at a warehouse, so simply failing the order would silently strand that
+inventory. The order moves to an explicit `COMPENSATING` state, the worker releases the
+reserved stock back to the warehouse, and only then does the order settle at
+`COMPENSATED` (terminal). `COMPENSATING` is a real, persisted state rather than an
+implicit consequence of "declined" — that way, if the process crashes mid-release, the
+next worker (or the reconciliation sweep) can see that a release is still owed and
+finish it, instead of the stock being lost until someone notices by hand.
 
-## 1. Idempotency at the API layer
+Both terminal-failure states are surfaced to the frontend the same way as success: keep
+polling `GET /orders/:id` until `settled` is `true`, then read `status` and
+`failureCode`.
 
-`POST /orders` requires an `Idempotency-Key` header.
+## 3. Finding the nearest available warehouse
 
-| Case | Response |
-|---|---|
-| Missing or blank key | `400 IDEMPOTENCY_KEY_REQUIRED` |
-| Invalid body | `400` (global `ValidationPipe`) |
-| Unknown customer / product / address | `422` with a specific code |
-| New key | `202` — `{ orderId, status: PENDING, self }` |
-| Duplicate key, same body | `202` — the same order, in whatever state it has reached |
-| Duplicate key, different body | `422 IDEMPOTENCY_KEY_REUSED` |
-| Duplicate key, winner still committing | `409 REQUEST_IN_PROGRESS` (rare; always resolves on retry) |
+Given the order's shipping coordinates (resolved via geocoding) and its list of
+requested products/quantities, the goal is: among warehouses that can fill the *entire*
+order from their own stock, pick the closest one — and if that warehouse's stock turns
+out to have moved by the time we actually try to take it, fall back to the next
+closest.
 
-**Why 202 for both the new and the duplicate case, and never 409 for a settled
-duplicate.** The contract of an idempotency key is that a retry is
-indistinguishable from the original. The moment a replay returns a different
-status code, every client must branch on the path it tests least. `200` on a
-terminal duplicate would be worse still: it implies the body is the settled
-resource, which it is not — `GET /orders/:id` is.
+**Data model / indexes:**
+- `Warehouse.location` is a GeoJSON `Point`, indexed with a **`2dsphere`** index —
+  this is what makes "nearest to a point" queryable at all in MongoDB, and it's the
+  index a `$geoNear` aggregation stage requires.
+- `Stock` has one document per `(warehouseId, productId)` pair, with a **unique
+  compound index on `{warehouseId, productId}`** — this both prevents duplicate stock
+  rows and gives point-lookups for "how much of product P does warehouse W have" for
+  free.
 
-**Enforcement is a unique index, not a check.** `{customerId, idempotencyKey}`
-is unique. A read-then-write check cannot work here, because ten concurrent
-requests can all pass it; only the database can arbitrate. The insert is
-attempted, `E11000` is caught, and the winner's order is returned.
+**The query, step by step:**
 
-Two details in that path are easy to get wrong and are handled explicitly:
+1. A single aggregation against the `warehouses` collection:
+   - `$geoNear` with the order's coordinates as the `near` point — this stage uses the
+     `2dsphere` index and, as a side effect of how `$geoNear` works, always returns
+     warehouses **already sorted nearest-first**, so no separate `$sort` is needed.
+   - `$lookup` against `stock`, joined on `warehouseId`, filtered to just the
+     requested `productId`s — this attaches each warehouse's relevant stock rows
+     without pulling its entire inventory.
+2. In application code, the joined results are filtered down to warehouses that have
+   *every* requested product in *sufficient* quantity — a warehouse missing even one
+   item, or short on quantity for one item, is dropped. Because step 1 already sorted
+   by distance and filtering preserves order, the surviving list is still nearest-first.
+3. The candidates are then tried **one at a time, nearest first**, inside a database
+   transaction: the reservation records "we're taking this stock for this order" first,
+   then decrements each item's quantity with a conditional update (`quantity: {$gte:
+   requestedQty}` in the filter). If the decrement doesn't match — because another
+   order took that stock in the meantime — the transaction aborts and the next-nearest
+   candidate is tried instead.
 
-- The duplicate-key check is **narrowed to the index** (`isDuplicateKeyError(err,
-  'idempotencyKey')`). The accept transaction writes to two collections, and a
-  collision on the outbox index means something entirely different — it must not
-  be quietly reinterpreted as "someone else won".
-- A unique index rejects a duplicate as soon as the winning transaction *holds*
-  the key, which is **before** that transaction commits. Reading immediately
-  after catching `E11000` can therefore legitimately find nothing. `awaitWinner`
-  waits out that commit window with a short bounded backoff; only if the order
-  never appears — meaning the winner aborted — does the caller get a `409`
-  telling them to retry.
+The reason step 2's filtering and step 3's transactional attempt are split like this
+rather than combined into one aggregation: `$geoNear` cannot run inside a multi-document
+transaction in MongoDB, so ranking by distance has to happen as a plain read outside
+any transaction. That means the ranking step is only ever a *hint* — read-only,
+possibly slightly stale by the time we act on it. The actual correctness guarantee
+("we never oversell this warehouse's stock") lives entirely in the conditional
+decrement inside the transaction, which will simply refuse and let the code fall
+through to the next candidate if the stock it was promised has already moved. If no
+candidate can fill the order, the order fails as described in §2.
 
-**Request fingerprinting.** A sha256 of the canonicalised body is stored on the
-order. Without it, a key replayed with different content silently returns an
-unrelated order — a data-integrity bug wearing an idempotency costume. Item
-order and key order don't affect the hash, so a genuine retry still matches.
+## 4. The mockdata module
 
----
+The task calls for mocking geocoding and the payment API, and explicitly says there's
+no need to implement customer/catalog/warehouse management APIs. Rather than hardcoding
+fixture data for those, I built a small module (`src/mockdata`) that implements REST
+endpoints standing in for *all* of the external systems this service depends on:
+the PSP, the product catalog, the geocoder, and the customer directory — plus
+management endpoints for warehouses and stock, since those needed to exist somewhere
+for the order flow to have anything to reserve against.
 
-## 2. Transactional outbox
+Why a module instead of static fixtures: it gave me (and would give a frontend) a
+single, running, HTTP-addressable place to add, list, and remove mock records —
+customers, products, addresses/coordinates, warehouses, stock levels, and even
+credit-card numbers pinned to always approve or always decline — while the app is
+running, instead of editing seed data and restarting. It's also what let me exercise
+the failure paths in §2 on demand: the mock PSP can simulate a decline, and can
+simulate a charge succeeding on its end while the response is lost in transit, which is
+what the reconciliation sweep exists to recover from.
 
-The order and an `ORDER_CREATED` outbox event are written in **one transaction**
-(`OrdersService.acceptOrder`). They commit together or not at all, which closes
-both failure modes: there is no window where an order exists that nothing will
-process, and none where an event announces an order that was rolled back.
+Each real integration point (`PaymentService`, `CatalogService`, `GeocodingService`,
+`CustomersService`) talks to its counterpart the same way it would talk to a genuine
+third-party provider — a plain HTTP call to a configured base URL — and that base URL
+defaults to this mock module locally but is independently overridable per integration
+via an environment variable. Swapping any one of them for a real provider later is a
+config change, not a code change. Warehouses and stock are the one exception: since
+this service owns that data directly rather than fetching it from another system, the
+mock module's warehouse/stock endpoints write to the exact same collections the real
+reservation logic reads from, so a warehouse or stock level added through the mock
+module's CRUD endpoints is immediately usable by a real order.
 
-`OutboxRelayService` polls, claims a row atomically (`claimNext` — one
-`findOneAndUpdate`, so exactly one relay wins each row), enqueues the job, and
-marks it dispatched. Failures back off on the row itself; a row that exhausts
-`ORDER_OUTBOX_MAX_ATTEMPTS` is marked `FAILED` and is an alertable condition.
-
-**Polling rather than a change stream**, deliberately: the relay must retry with
-backoff and must pick up rows written while it was down. A change stream gives
-neither — it needs a persisted resume token and *still* needs a polling fallback
-for the window where that token ages out of the oplog. That's two mechanisms to
-do one job, and a change stream needs a replica set anyway.
-
----
-
-## 3. The saga worker
-
-`OrderSagaProcessor` drives the order forward, re-reading it between every step
-because the sweeper (or another delivery) may have advanced it mid-flight.
-
-**Our internal `orderId` is passed as the idempotency key to both the warehouse
-and the PSP.** That is what makes redelivery free:
-
-| Step | At-least-once hazard | Defence |
-|---|---|---|
-| reserve | double decrement | unique `{orderId, RESERVE}` written in the same transaction as the `$inc` |
-| authorize | double charge | PSP ledger unique on `idempotencyKey = orderId`; a replay returns the original result |
-| complete | none | CAS from `PAYMENT_AUTHORIZED` |
-| release | double credit | unique `{orderId, RELEASE}` written in the same transaction as the `$inc` |
-| any | acting on a settled order | terminal check at the top of the loop + CAS on every write |
-
-### The reservation ledger
-
-`$inc` is not idempotent and a queue redelivers, so the **decision** to move
-stock is recorded as a uniquely-indexed `stock_movements` document written
-inside the same transaction as the quantity change. A replayed job collides with
-that index, which aborts its transaction before any quantity moves. Stock and
-ledger can never disagree, and every quantity change in the system has exactly
-one row explaining which order caused it.
-
-One subtlety worth flagging: a duplicate-key error raised *inside* an open
-transaction aborts it server-side and cannot be caught and recovered from there.
-`releaseForOrder` therefore reads first inside the transaction and handles a
-genuine race as an abort caught outside it.
-
-### When retries are exhausted
-
-Nothing special happens — deliberately. A job that has failed five times with
-backoff has failed against a backend we evidently cannot reach, which makes the
-worker the component *least* qualified to decide the order's fate. The order is
-left non-terminal for reconciliation to resolve against the PSP's actual record.
-
-`jobId` deduplication is an optimisation only, never relied on for correctness:
-`removeOnComplete` eventually frees the id.
-
----
-
-## 4. Active reconciliation
-
-`@Cron` every 30 seconds, scanning each non-terminal state for orders untouched
-for longer than `ORDER_STALE_AFTER_MS` (default 5 minutes):
-
-- **`PENDING`** → `FAILED`. Nothing was reserved or charged. A defensive
-  `releaseForOrder` follows, which is a no-op unless a worker's reservation
-  committed in the instant before the CAS landed.
-- **`STOCK_RESERVED`** → ask the PSP via `getByIdempotencyKey(orderId)`.
-  A recorded success means the worker charged the card and died before recording
-  it, so the order is driven forward to `COMPLETED`. A decline, or no record at
-  all, means the stock is owed back: `COMPENSATING` → release → `COMPENSATED`.
-- **`PAYMENT_AUTHORIZED`** → `COMPLETED`. Money taken, stock reserved, nothing
-  left to decide.
-- **`COMPENSATING`** → release (idempotent) → `COMPENSATED`.
-
-That second case is the one the whole architecture exists for, and it is why the
-mock PSP grew both an idempotency key and a status lookup. Without the lookup the
-only safe assumption for a stuck order is failure — which would release stock for
-an order the customer has already paid for.
-
-**Running on every instance is safe.** Each order is claimed by a single atomic
-`findOneAndUpdate`, and every state change is a CAS. Even if a claim were
-bypassed entirely — clock skew, a lease expiring mid-work — the ledgers make the
-duplicated work a no-op. **The lease is rate limiting and defence in depth; it is
-not the correctness boundary.**
-
----
+This module is explicitly a development/testing aid, not something meant to ship to
+production — it stands in for infrastructure a real deployment would never own itself
+(another company's payment gateway, another team's customer service).
 
 ## Testing
 
 ```bash
 npm test         # unit — fast, no I/O
 npm run test:int # integration — real transactions against an in-memory replica set
-npm run lint
 ```
-
-The integration suite is where the real guarantees are proven, because every one
-of them is a *database* behaviour; asserting them against mocked models would
-only prove the mocks behave as written. It boots a `MongoMemoryReplSet` and
-covers, among others:
-
-- ten concurrent requests with one key → exactly one order, one outbox event;
-- a key reused with a different body → `422`, nothing created;
-- three redeliveries of one job → one charge, one decrement, `COMPLETED`;
-- a declined payment replayed twice then swept → stock back to its original
-  level, *not above it*, and exactly one `RELEASE` movement;
-- two orders competing for the last three units → one `COMPLETED`, one `FAILED`,
-  stock exactly `0`;
-- sweeper and worker racing the same order → one settles it, no duplicated
-  side effect, stock consistent with whichever won;
-- **a successful charge whose response is lost** → the order strands in
-  `STOCK_RESERVED` with no `paymentResult`, and the sweeper recovers it to
-  `COMPLETED` with the *same* `transactionId` and exactly one charge.
-
-Tests invoke `OrderSagaProcessor.process()`, `OutboxRelayService.tick()` and
-`OrderReconciliationService.sweep()` directly rather than waiting on timers and
-a broker — more precise, and no Redis needed.
-
----
-
-## Trade-offs and known gaps
-
-- **Stale `PENDING` orders are failed at the 5-minute mark.** This is a
-  deliberate choice of a single deadline. The cost is that a worker outage or
-  queue backlog longer than `ORDER_STALE_AFTER_MS` will fail orders that nothing
-  was actually wrong with, so that value must stay comfortably above the
-  worker's whole retry budget. Failing closed is the safe direction — nothing
-  was reserved or charged, and the customer can retry. An alternative worth
-  considering under sustained load is to re-drive at 5 minutes and only fail at
-  a separate, longer hard deadline.
-- **Reserve-before-charge holds stock hostage to queue latency.** A backlog ties
-  up inventory, and the sweeper deadline is effectively a reservation TTL. The
-  alternative — charging first — means refunds, which are strictly worse to
-  operate than restocks.
-- **Idempotency-key scoping is nominal.** There is no authentication, so
-  `customerId` is caller-supplied. With real auth the unique index would be
-  `{principalId, idempotencyKey}`.
-- **Idempotency keys never expire.** The `orders` collection doubles as an
-  idempotency store and grows unbounded; a real system would TTL it at ~24h.
-- **`PAYMENT_AUTHORIZED → COMPENSATING` would imply a refund** the mock PSP
-  cannot perform. It should be unreachable in the current design; it is logged
-  loudly as manual intervention rather than faked.
-- **The relay and sweeper run on every instance**, which is safe but multiplies
-  the polling load. `ORDER_SAGA_WORKER_ENABLED=false` already allows API-only
-  processes; the same treatment for the relay and sweeper is the fix at scale.
-- **Money is stored in integer minor units.** The previous float `totalAmount`
-  was a rounding bug waiting to happen.
-
-### Fixed along the way
-
-Three latent defects prevented the application from booting at all and were
-fixed first, before any refactoring: `CustomersModule` declared no providers and
-no exports, `InventoryModule` never exported `InventoryService`, and
-`ConfigModule` was not global while `GeocodingService` injected `ConfigService`.
-`$geoNear` was also being executed inside a multi-document transaction, which
-MongoDB rejects; warehouse ranking is now a read-only query outside the
-transaction, where it belongs — all of the safety lives in the conditional
-decrement.
