@@ -8,7 +8,7 @@ double-charging or double-decrementing stock.
 ## Try it out live!
 
 A running instance is available at
-[http://ec2-54-90-112-209.compute-1.amazonaws.com](http://ec2-54-90-112-209.compute-1.amazonaws.com).
+[http://ec2-54-90-112-209.compute-1.amazonaws.com:8080](http://ec2-54-90-112-209.compute-1.amazonaws.com:8080).
 
 ## Running it
 

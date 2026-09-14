@@ -1,5 +1,4 @@
-// Only thing you should need to change when pointing this at a different backend.
-const API_BASE_URL = "http://localhost:4000";
+const API_BASE_URL = "/api";
 
 // ---------- navigation ----------
 
