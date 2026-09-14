@@ -5,6 +5,11 @@ picks the nearest warehouse able to fill the order and charges the customer, bui
 survive dropped connections, retried requests, and redelivered background jobs without
 double-charging or double-decrementing stock.
 
+## Try it out live!
+
+A running instance is available at
+[http://ec2-54-90-112-209.compute-1.amazonaws.com](http://ec2-54-90-112-209.compute-1.amazonaws.com).
+
 ## Running it
 
 ### Docker (simplest)
