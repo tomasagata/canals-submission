@@ -13,7 +13,7 @@
     <header class="topbar">
       <h1>Orders</h1>
       <div class="topbar-actions">
-        <button id="btn-open-data" class="icon-btn" title="Data" aria-label="Data">&#x2699;&#xFE0F;</button>
+        <button id="btn-open-data" class="icon-btn" title="Mock Data" aria-label="Mock Data">&#x2699;&#xFE0F;</button>
       </div>
     </header>
 
@@ -54,12 +54,16 @@
     </main>
   </section>
 
-  <!-- DATA SCREEN -->
+  <!-- MOCK DATA SCREEN -->
   <section id="screen-data" class="screen" hidden>
     <header class="topbar">
       <button type="button" class="icon-btn btn-back" data-back-to="screen-orders" title="Back" aria-label="Back">&#x2190;</button>
-      <h1>Data</h1>
+      <h1>Mock Data</h1>
     </header>
+    <p class="form-message error">
+      This screen is for testing purposes only. It lets you quickly create mock records to exercise the order flow.
+      No meaningful validation is performed here. In a real application, each service would have its own validation to ensure this data is clean and consistent.
+    </p>
     <nav class="tabs" id="data-tabs">
       <button type="button" class="tab-btn" data-tab="products">Products</button>
       <button type="button" class="tab-btn" data-tab="locations">Locations</button>
